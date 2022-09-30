@@ -20,6 +20,7 @@ I knew the database design was going to be a bit complicated, and so I decided t
 
 ## Code-First Migrations
 Having planned out the database really well, I was able to easily set up the tables for the database using Entity Framework Core.
+
 ![Imgur](https://i.imgur.com/zJWDb9J.png "Code-First Tables")
 ![Imgur](https://i.imgur.com/1IxROaJ.png "Example Model")
 
