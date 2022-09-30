@@ -14,8 +14,6 @@ namespace AdventureGuildAPI.Data
         {
             modelBuilder.Entity<QuestCheck>().HasKey(x => new {x.QuestId});
             modelBuilder.Entity<Approval>().HasKey(x => new { x.ApproverId, x.QuestId});
-            //modelBuilder.Entity<Approval>().HasOne(x => x.User).WithMany().OnDelete(DeleteBehavior.Cascade);
-            //modelBuilder.Entity<Approval>().HasOne(x => x.Quest).WithMany().OnDelete(DeleteBehavior.Cascade);
             modelBuilder.Entity<User>().HasOne(x => x.Guild).WithMany().OnDelete(DeleteBehavior.SetNull);
             modelBuilder.Entity<User>().HasOne(x => x.Party).WithMany().OnDelete(DeleteBehavior.SetNull);
         }
