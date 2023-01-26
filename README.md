@@ -1,5 +1,5 @@
 # Adventurer's Guild
-A full stack task management app using C#, ASP.NET Core, EF Core, FluentAPI, ReactJS, and PostgreSQL
+A full stack task management app using C#, ASP.NET Core, EF Core, FluentAPI, Flutter, and PostgreSQL
 
 ## Idea
 The motivation and origin of this app comes from me wishing I could reduce my habits for procrastination by creating a task management app. However, most task management apps feel like chores and are not fun and interactive. There are rarely any incentives because one could easily be dishonest to themselves. Wanting to combat this issue,  **Adventurer's Guild** was born.
