@@ -13,7 +13,7 @@ namespace AdventureGuildAPI.Data.Migrations
 {
     [DbContext(typeof(DataContext))]
     [Migration("20220915045314_createdatabase")]
-    partial class createdatabase
+    partial class CreateDatabase
     {
         protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {

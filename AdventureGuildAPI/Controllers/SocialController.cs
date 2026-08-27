@@ -1,399 +1,378 @@
-﻿using AdventureGuildAPI.Data;
+using AdventureGuildAPI.Data;
+using AdventureGuildAPI.Extensions;
 using AdventureGuildAPI.Models;
 using Microsoft.AspNetCore.Authorization;
-using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
-using System.Security.Claims;
 
-namespace AdventureGuildAPI.Controllers
+namespace AdventureGuildAPI.Controllers;
+
+[Route("api/[controller]")]
+[ApiController]
+[Authorize(Policy = "RequireUser")]
+public class SocialController : ControllerBase
 {
-    [Route("api/[controller]")]
-    [ApiController]
-    [Authorize(Policy = "RequireUser")]
-    public class SocialController : ControllerBase
+    private const int MaximumPartySize = 4;
+    private readonly DataContext _context;
+
+    public SocialController(DataContext context) => _context = context;
+
+    [HttpGet("friends")]
+    public async Task<IEnumerable<string>> GetFriends()
     {
-        private readonly DataContext _context;
-        public SocialController(DataContext context)
+        var userId = User.GetUserId();
+        var sent = _context.Friendships.Where(x => x.RequestId == userId && x.Confirmed).Select(x => x.AcceptUser.Username);
+        var received = _context.Friendships.Where(x => x.AcceptId == userId && x.Confirmed).Select(x => x.RequestUser.Username);
+        return await sent.Union(received).ToListAsync();
+    }
+
+    [HttpPost("add-friend")]
+    public async Task<IActionResult> RequestFriendship(string username)
+    {
+        var userId = User.GetUserId();
+        var friend = await _context.Users.FirstOrDefaultAsync(x => x.Username == username);
+        if (friend == null) return NotFound("User not found.");
+        if (friend.Id == userId) return BadRequest("You cannot add yourself as a friend.");
+
+        var existing = await _context.Friendships.FirstOrDefaultAsync(x =>
+            (x.RequestId == userId && x.AcceptId == friend.Id) ||
+            (x.RequestId == friend.Id && x.AcceptId == userId));
+
+        if (existing != null)
         {
-            _context = context;
-        }
+            if (existing.Confirmed) return BadRequest("Already friends.");
+            if (existing.AcceptId != userId) return BadRequest("Request sent already.");
 
-        [HttpGet("friends")]
-        public async Task<IEnumerable<string>> GetFriends()
-        {
-            int userId = int.Parse(User.FindFirstValue(ClaimTypes.NameIdentifier));
-            var query1 = from p in _context.Users join f in _context.Friendships on p.Id equals f.RequestId where f.AcceptId == userId && f.Confirmed == true select p.Username;
-            var query2 = from p in _context.Users join f in _context.Friendships on p.Id equals f.AcceptId where f.RequestId == userId && f.Confirmed == true select p.Username;
-            var friendList = await query1.Union(query2).ToListAsync();
-            return friendList;
-        }
-
-        [HttpPost("add-friend")]
-        [ProducesResponseType(200), ProducesResponseType(404), ProducesResponseType(400)]
-        public async Task<IActionResult> RequestFriendship(string username)
-        {
-            int userId = int.Parse(User.FindFirstValue(ClaimTypes.NameIdentifier));
-            if (username == User.FindFirstValue(ClaimTypes.Name)) return BadRequest();
-            var friend = await _context.Users.FirstOrDefaultAsync(x => x.Username == username);
-            if (friend == null) return NotFound();
-            var query = from f in _context.Friendships where (f.RequestId == userId && f.AcceptId == friend.Id) || (f.RequestId == userId && f.AcceptId == friend.Id) select f;
-            var existing = query.Any() ? await query.FirstAsync() : null;
-            if(existing != null)
-            {
-                if (existing.RequestId == userId) return BadRequest("Request sent already");
-                if (existing.Confirmed == true) return BadRequest("Already friends");
-                await _context.Database.ExecuteSqlInterpolatedAsync($@"UPDATE Friendships SET Confirmed = TRUE WHERE AcceptId = {userId} AND RequestId = {friend.Id}");
-            }
-            await _context.Database.ExecuteSqlInterpolatedAsync($@"INSERT INTO Friendships (RequestId, AcceptId, Confirmed) VALUES ({userId}, {friend.Id}, FALSE)");
-            return Ok();
-        }
-
-        [HttpPost("accept-friend")]
-        [ProducesResponseType(200), ProducesResponseType(404)]
-        public async Task<IActionResult> AcceptFriendship(string username)
-        {
-            int userId = int.Parse(User.FindFirstValue(ClaimTypes.NameIdentifier));
-            var friend = await _context.Users.FirstOrDefaultAsync(x => x.Username == username);
-            if (friend == null) return NotFound();
-
-            await _context.Database.ExecuteSqlInterpolatedAsync($@"UPDATE Friendships SET Confirmed = TRUE WHERE AcceptId = {userId} AND RequestId = {friend.Id}");
-
-            return Ok();
-
-        }
-
-        [HttpPost("delete-friend")]
-        [ProducesResponseType(200), ProducesResponseType(404)]
-        public async Task<IActionResult> DeleteFriendship(string username)
-        {
-            int userId = int.Parse(User.FindFirstValue(ClaimTypes.NameIdentifier));
-            var friend = await _context.Users.FirstOrDefaultAsync(x => x.Username == username);
-            if (friend == null) return NotFound();
-
-            await _context.Database.ExecuteSqlInterpolatedAsync($@"DELETE FROM Friendships WHERE (AcceptId = {userId} AND RequestId = {friend.Id}) OR (AcceptId = {friend.Id} AND RequestId = {userId})");
-
-            return Ok();
-
-        }
-
-        [HttpGet("friend-requests")]
-        public async Task<IEnumerable<string>> GetFriendRequests()
-        {
-            int userId = int.Parse(User.FindFirstValue(ClaimTypes.NameIdentifier));
-            var query = from u in _context.Users join f in _context.Friendships on u.Id equals f.AcceptId where (u.Id == userId && f.Confirmed == false) select u.Username;
-            if(!query.Any()) return Enumerable.Empty<string>();
-            var requestNames = await query.ToListAsync();
-            return requestNames;
-        }
-
-        [HttpPost("create-guild")]
-        [ProducesResponseType(200), ProducesResponseType(409)]
-        public async Task<IActionResult> CreateGuild(GuildDto guildReq)
-        {
-            int userId = int.Parse(User.FindFirstValue(ClaimTypes.NameIdentifier));
-            var user = await _context.Users.FindAsync(userId);
-            if (user == null) return BadRequest();
-            if (user.GuildId != null) return BadRequest();
-            var foundGuild = await _context.Guilds.FirstOrDefaultAsync();
-            if (foundGuild != null) return StatusCode(409);
-            var guild = new Guild()
-            {
-                Name = guildReq.Name,
-                Description = guildReq.Description,
-                IsPrivate = guildReq.IsPrivate,
-                LeaderId = userId
-            };
-
-            await _context.Guilds.AddAsync(guild);
+            existing.Confirmed = true;
             await _context.SaveChangesAsync();
+            return Ok();
+        }
 
+        _context.Friendships.Add(new Friendship { RequestId = userId, AcceptId = friend.Id });
+        await _context.SaveChangesAsync();
+        return Ok();
+    }
+
+    [HttpPost("accept-friend")]
+    public async Task<IActionResult> AcceptFriendship(string username)
+    {
+        var userId = User.GetUserId();
+        var friend = await _context.Users.FirstOrDefaultAsync(x => x.Username == username);
+        if (friend == null) return NotFound("User not found.");
+
+        var request = await _context.Friendships.FindAsync(friend.Id, userId);
+        if (request == null || request.Confirmed) return NotFound("Friend request not found.");
+
+        request.Confirmed = true;
+        await _context.SaveChangesAsync();
+        return Ok();
+    }
+
+    [HttpPost("delete-friend")]
+    public async Task<IActionResult> DeleteFriendship(string username)
+    {
+        var userId = User.GetUserId();
+        var friend = await _context.Users.FirstOrDefaultAsync(x => x.Username == username);
+        if (friend == null) return NotFound("User not found.");
+
+        var friendships = await _context.Friendships.Where(x =>
+            (x.RequestId == userId && x.AcceptId == friend.Id) ||
+            (x.RequestId == friend.Id && x.AcceptId == userId)).ToListAsync();
+        _context.Friendships.RemoveRange(friendships);
+        await _context.SaveChangesAsync();
+        return Ok();
+    }
+
+    [HttpGet("friend-requests")]
+    public Task<List<string>> GetFriendRequests() => _context.Friendships
+        .Where(x => x.AcceptId == User.GetUserId() && !x.Confirmed)
+        .Select(x => x.RequestUser.Username)
+        .ToListAsync();
+
+    [HttpPost("create-guild")]
+    public async Task<IActionResult> CreateGuild(GuildDto guildRequest)
+    {
+        var userId = User.GetUserId();
+        var user = await _context.Users.FindAsync(userId);
+        if (user == null) return NotFound("User not found.");
+        if (user.GuildId != null) return BadRequest("Leave your current guild before creating another.");
+        if (await _context.Guilds.AnyAsync(x => x.Name == guildRequest.Name)) return Conflict("A guild with that name already exists.");
+
+        user.Guild = new Guild
+        {
+            Name = guildRequest.Name,
+            Description = guildRequest.Description,
+            IsPrivate = guildRequest.IsPrivate,
+            LeaderId = userId
+        };
+        _context.GuildRequests.RemoveRange(await _context.GuildRequests.Where(x => x.RequestId == userId).ToListAsync());
+        await _context.SaveChangesAsync();
+        return Ok();
+    }
+
+    [HttpGet("guild")]
+    public async Task<IActionResult> GetCurrentGuild()
+    {
+        var guild = await _context.Users.Where(x => x.Id == User.GetUserId()).Select(x => x.Guild).FirstOrDefaultAsync();
+        if (guild == null) return NoContent();
+
+        return Ok(new Guild
+        {
+            Id = guild.Id,
+            Name = guild.Name,
+            Description = guild.Description,
+            IsPrivate = guild.IsPrivate,
+            LeaderId = guild.LeaderId
+        });
+    }
+
+    [HttpGet("guild/{guildId}/members")]
+    public async Task<IActionResult> GetGuildMembers(int guildId)
+    {
+        if (!await _context.Guilds.AnyAsync(x => x.Id == guildId)) return NotFound("Guild not found.");
+        return Ok(await _context.Users.Where(x => x.GuildId == guildId).Select(x => x.Username).ToListAsync());
+    }
+
+    [HttpPost("guild/request")]
+    public async Task<IActionResult> RequestGuild(string guildName)
+    {
+        var userId = User.GetUserId();
+        var user = await _context.Users.FindAsync(userId);
+        var guild = await _context.Guilds.FirstOrDefaultAsync(x => x.Name == guildName);
+        if (guild == null) return NotFound("Guild not found.");
+        if (user == null) return NotFound("User not found.");
+        if (user.GuildId != null) return BadRequest("Leave your current guild before joining another.");
+
+        if (guild.IsPrivate)
+        {
+            if (await _context.GuildRequests.AnyAsync(x => x.RequestId == userId && x.GuildId == guild.Id))
+            {
+                return BadRequest("Guild request already sent.");
+            }
+
+            _context.GuildRequests.Add(new GuildRequest { RequestId = userId, GuildId = guild.Id });
+        }
+        else
+        {
             user.GuildId = guild.Id;
+            _context.GuildRequests.RemoveRange(await _context.GuildRequests.Where(x => x.RequestId == userId).ToListAsync());
+        }
+
+        await _context.SaveChangesAsync();
+        return Ok();
+    }
+
+    [HttpGet("guild/{guildId}/get-requests")]
+    public async Task<IActionResult> GetGuildRequests(int guildId)
+    {
+        var guild = await _context.Guilds.FindAsync(guildId);
+        if (guild == null) return NotFound("Guild not found.");
+        if (guild.LeaderId != User.GetUserId()) return Forbid();
+
+        return Ok(await _context.GuildRequests.Where(x => x.GuildId == guildId).Select(x => x.User.Username).ToListAsync());
+    }
+
+    [HttpPost("guild/{guildId}/accept")]
+    public async Task<IActionResult> AcceptGuildRequest(int guildId, string username)
+    {
+        var guild = await _context.Guilds.FindAsync(guildId);
+        var user = await _context.Users.FirstOrDefaultAsync(x => x.Username == username);
+        if (guild == null || user == null) return NotFound();
+        if (guild.LeaderId != User.GetUserId()) return Forbid();
+        if (user.GuildId != null) return BadRequest("User already belongs to a guild.");
+
+        var request = await _context.GuildRequests.FindAsync(user.Id, guildId);
+        if (request == null) return NotFound("Guild request not found.");
+
+        user.GuildId = guildId;
+        _context.GuildRequests.RemoveRange(await _context.GuildRequests.Where(x => x.RequestId == user.Id).ToListAsync());
+        await _context.SaveChangesAsync();
+        return Ok();
+    }
+
+    [HttpPost("guild/{guildId}/reject")]
+    public async Task<IActionResult> RejectGuildRequest(int guildId, string username)
+    {
+        var guild = await _context.Guilds.FindAsync(guildId);
+        var user = await _context.Users.FirstOrDefaultAsync(x => x.Username == username);
+        if (guild == null || user == null) return NotFound();
+        if (guild.LeaderId != User.GetUserId()) return Forbid();
+
+        var request = await _context.GuildRequests.FindAsync(user.Id, guildId);
+        if (request == null) return NotFound("Guild request not found.");
+
+        _context.GuildRequests.Remove(request);
+        await _context.SaveChangesAsync();
+        return Ok();
+    }
+
+    [HttpPost("guild/{guildId}/change-leader")]
+    public async Task<IActionResult> ChangeGuildLeader(int guildId, string username)
+    {
+        var guild = await _context.Guilds.FindAsync(guildId);
+        var user = await _context.Users.FirstOrDefaultAsync(x => x.Username == username);
+        if (guild == null || user == null) return NotFound();
+        if (guild.LeaderId != User.GetUserId()) return Forbid();
+        if (user.GuildId != guildId) return BadRequest("The new leader must be a guild member.");
+
+        guild.LeaderId = user.Id;
+        await _context.SaveChangesAsync();
+        return Ok();
+    }
+
+    [HttpPost("leave-guild")]
+    public async Task<IActionResult> LeaveGuild()
+    {
+        var userId = User.GetUserId();
+        var user = await _context.Users.Include(x => x.Guild).FirstOrDefaultAsync(x => x.Id == userId);
+        if (user?.Guild == null) return BadRequest("Not in a guild.");
+        if (user.Guild.LeaderId == userId) return BadRequest("Transfer leadership or disband the guild before leaving.");
+
+        user.GuildId = null;
+        await _context.SaveChangesAsync();
+        return Ok();
+    }
+
+    [HttpDelete("guild/disband")]
+    public async Task<IActionResult> DisbandGuild()
+    {
+        var userId = User.GetUserId();
+        var user = await _context.Users.Include(x => x.Guild).FirstOrDefaultAsync(x => x.Id == userId);
+        if (user?.Guild == null || user.Guild.LeaderId != userId) return BadRequest("Only the guild leader can disband it.");
+
+        _context.Guilds.Remove(user.Guild);
+        await _context.SaveChangesAsync();
+        return NoContent();
+    }
+
+    [HttpPost("guild/{guildId}/set-privacy")]
+    public async Task<IActionResult> SetPrivacy(int guildId, bool privacy)
+    {
+        var guild = await _context.Guilds.FindAsync(guildId);
+        if (guild == null) return NotFound();
+        if (guild.LeaderId != User.GetUserId()) return Forbid();
+
+        guild.IsPrivate = privacy;
+        await _context.SaveChangesAsync();
+        return Ok();
+    }
+
+    [HttpGet("party")]
+    public async Task<IActionResult> GetCurrentParty()
+    {
+        var party = await _context.Users.Where(x => x.Id == User.GetUserId()).Select(x => x.Party).FirstOrDefaultAsync();
+        if (party == null) return NoContent();
+        return Ok(new Party { Id = party.Id, Name = party.Name ?? "Unnamed Party" });
+    }
+
+    [HttpGet("party/{partyId}/members")]
+    public async Task<IActionResult> GetPartyMembers(int partyId)
+    {
+        if (!await _context.Parties.AnyAsync(x => x.Id == partyId)) return NotFound("Party not found.");
+        return Ok(await _context.Users.Where(x => x.PartyId == partyId).Select(x => x.Username).ToListAsync());
+    }
+
+    [HttpPost("create-party")]
+    public async Task<IActionResult> CreateParty(string? name)
+    {
+        var userId = User.GetUserId();
+        var user = await _context.Users.FindAsync(userId);
+        if (user == null) return NotFound("User not found.");
+        if (user.PartyId != null) return BadRequest("Leave your current party before creating another.");
+
+        user.Party = new Party { Name = name };
+        _context.PartyInvites.RemoveRange(await _context.PartyInvites.Where(x => x.AcceptId == userId).ToListAsync());
+        await _context.SaveChangesAsync();
+        return Ok();
+    }
+
+    [HttpPost("party/invite")]
+    public async Task<IActionResult> InvitePartyMember(string username)
+    {
+        var inviterId = User.GetUserId();
+        var inviter = await _context.Users.FindAsync(inviterId);
+        var invitee = await _context.Users.FirstOrDefaultAsync(x => x.Username == username);
+        if (inviter?.PartyId == null) return BadRequest("You must belong to a party to send invites.");
+        if (invitee == null) return NotFound("User not found.");
+        if (invitee.Id == inviterId || invitee.PartyId != null) return BadRequest("User cannot be invited to this party.");
+
+        var partyId = inviter.PartyId.Value;
+        if (await _context.Users.CountAsync(x => x.PartyId == partyId) >= MaximumPartySize) return BadRequest("Full party.");
+        if (await _context.PartyInvites.FindAsync(partyId, invitee.Id) != null) return BadRequest("Party invite already sent.");
+
+        _context.PartyInvites.Add(new PartyInvite { PartyId = partyId, InviterId = inviterId, AcceptId = invitee.Id });
+        await _context.SaveChangesAsync();
+        return Ok();
+    }
+
+    [HttpGet("party/get-invites")]
+    public Task<List<string>> GetPartyInvites() => _context.PartyInvites
+        .Where(x => x.AcceptId == User.GetUserId())
+        .Select(x => x.Inviter.Username)
+        .ToListAsync();
+
+    [HttpPost("party/accept-invite")]
+    public async Task<IActionResult> AcceptInvite(string username)
+    {
+        var userId = User.GetUserId();
+        var user = await _context.Users.FindAsync(userId);
+        var inviter = await _context.Users.FirstOrDefaultAsync(x => x.Username == username);
+        if (user == null || inviter == null) return NotFound();
+        if (user.PartyId != null) return BadRequest("Leave your current party before accepting an invite.");
+
+        var invite = await _context.PartyInvites.FirstOrDefaultAsync(x => x.AcceptId == userId && x.InviterId == inviter.Id);
+        if (invite == null) return NotFound("Party invite not found.");
+        if (inviter.PartyId != invite.PartyId || await _context.Users.CountAsync(x => x.PartyId == invite.PartyId) >= MaximumPartySize)
+        {
+            _context.PartyInvites.Remove(invite);
             await _context.SaveChangesAsync();
-
-            await _context.Database.ExecuteSqlInterpolatedAsync($@"DELETE FROM GuildRequests g WHERE g.RequestId = {userId}");
-
-            return Ok();
+            return BadRequest("Party invite is no longer valid.");
         }
 
-        [HttpGet("guild")]
-        [ProducesResponseType(204), ProducesResponseType(typeof(Guild), 200)]
-        public async Task<IActionResult> GetCurrentGuild()
+        user.PartyId = invite.PartyId;
+        _context.PartyInvites.RemoveRange(await _context.PartyInvites.Where(x => x.AcceptId == userId).ToListAsync());
+        await _context.SaveChangesAsync();
+        return Ok();
+    }
+
+    [HttpPost("party/reject-invite")]
+    public async Task<IActionResult> RejectPartyInvite(string username)
+    {
+        var userId = User.GetUserId();
+        var inviter = await _context.Users.FirstOrDefaultAsync(x => x.Username == username);
+        if (inviter == null) return NotFound("User not found.");
+
+        var invite = await _context.PartyInvites.FirstOrDefaultAsync(x => x.AcceptId == userId && x.InviterId == inviter.Id);
+        if (invite == null) return NotFound("Party invite not found.");
+
+        _context.PartyInvites.Remove(invite);
+        await _context.SaveChangesAsync();
+        return Ok();
+    }
+
+    [HttpPost("party/leave")]
+    public async Task<IActionResult> LeaveParty()
+    {
+        var userId = User.GetUserId();
+        var user = await _context.Users.FindAsync(userId);
+        if (user?.PartyId is not int partyId) return BadRequest("Not in a party.");
+
+        user.PartyId = null;
+        await _context.SaveChangesAsync();
+
+        if (!await _context.Users.AnyAsync(x => x.PartyId == partyId))
         {
-            int userId = int.Parse(User.FindFirstValue(ClaimTypes.NameIdentifier));
-            var query = from g in _context.Guilds join u in _context.Users on g.Id equals u.GuildId where u.Id == userId select g;
-            if (!query.Any()) return NoContent();
-            var result = await query.FirstAsync();
-            var guild = new Guild()
-            {
-                Id = result.Id,
-                Name = result.Name,
-                Description = result.Description,
-                IsPrivate = result.IsPrivate,
-                LeaderId = result.LeaderId
-            };
-            return Ok(guild);
+            var party = await _context.Parties.FindAsync(partyId);
+            if (party != null) _context.Parties.Remove(party);
         }
-
-        [HttpGet("guild/{guildId}/members")]
-        [ProducesResponseType(typeof(IEnumerable<string>), 200), ProducesResponseType(404)]
-        public async Task<IActionResult> GetGuildMembers(int guildId)
+        else
         {
-            var query = from u in _context.Users join g in _context.Guilds on u.GuildId equals g.Id where u.GuildId == guildId select u.Username;
-            if (!query.Any()) return NotFound("Guild not found");
-            var members = await query.ToListAsync();
-            return Ok(members);
+            _context.PartyInvites.RemoveRange(await _context.PartyInvites
+                .Where(x => x.PartyId == partyId && x.InviterId == userId)
+                .ToListAsync());
         }
 
-        [HttpPost("guild/request")]
-        [ProducesResponseType(200), ProducesResponseType(404)]
-        public async Task<IActionResult> RequestGuild(string guildName)
-        {
-            var foundGuild = await _context.Guilds.AsNoTracking().FirstOrDefaultAsync(x => x.Name == guildName);
-            var userId = int.Parse(User.FindFirstValue(ClaimTypes.NameIdentifier));
-            if (foundGuild == null) return NotFound();
-            if (foundGuild.IsPrivate)
-            {
-                await _context.Database.ExecuteSqlInterpolatedAsync($@"INSERT INTO GuildRequests (RequestId, GuildId) VALUES ({userId}, {foundGuild.Id})");
-            }
-            else
-            {
-                User user = new()
-                {
-                    Id = userId,
-                    GuildId = foundGuild.Id
-                };
-                _context.Entry(user).Property("GuildId").IsModified = true;
-                await _context.Database.ExecuteSqlInterpolatedAsync($@"DELETE FROM GuildRequests gr WHERE gr.RequestId = {userId}");
-                await _context.SaveChangesAsync();
-            }
-            return Ok();
-        }
-
-        [HttpGet("guild/{guildId}/get-requests")]
-        [ProducesResponseType(204), ProducesResponseType(typeof(IEnumerable<string>), 200)]
-        public async Task<IEnumerable<string>> GetGuildRequests(int guildId)
-        {
-            var userId = int.Parse(User.FindFirstValue(ClaimTypes.NameIdentifier));
-            var query = from u in _context.Users join gr in _context.GuildRequests on u.Id equals gr.RequestId where gr.GuildId == guildId select u.Username;
-            if(!query.Any()) return Enumerable.Empty<string>();
-            var requests = await query.ToListAsync();
-            return requests;
-        }
-
-        [HttpPost("guild/{guildId}/accept")]
-        [ProducesResponseType(200), ProducesResponseType(400), ProducesResponseType(404)]
-        public async Task<IActionResult> AcceptGuildRequest(int guildId, string username)
-        {
-            var approverId = int.Parse(User.FindFirstValue(ClaimTypes.NameIdentifier));
-            var user = await _context.Users.FirstOrDefaultAsync(u => u.Username == username);
-            if(user == null) return NotFound();
-            var guild = await _context.Guilds.AsNoTracking().FirstOrDefaultAsync(g => g.Id == guildId);
-            if (guild == null) return NotFound();
-            if (guild.LeaderId != approverId) return BadRequest();
-            user.GuildId = guildId;
-            await _context.SaveChangesAsync();
-            await _context.Database.ExecuteSqlInterpolatedAsync($@"DELETE FROM GuildRequests g WHERE g.RequestId = {user.Id}");
-            return Ok();
-        }
-
-        [HttpPost("guild/{guildId}/reject")]
-        [ProducesResponseType(200), ProducesResponseType(400), ProducesResponseType(404)]
-        public async Task<IActionResult> RejectGuildRequest(int guildId, string username)
-        {
-            var approverId = int.Parse(User.FindFirstValue(ClaimTypes.NameIdentifier));
-            var user = await _context.Users.AsNoTracking().FirstOrDefaultAsync(u => u.Username == username);
-            if (user == null) return NotFound();
-            var guild = await _context.Guilds.AsNoTracking().FirstOrDefaultAsync(g => g.Id == guildId);
-            if (guild == null) return NotFound();
-            if (guild.LeaderId != approverId) return BadRequest();
-            await _context.Database.ExecuteSqlInterpolatedAsync($@"DELETE FROM GuildRequests gr WHERE gr.RequestId = {user.Id} AND gr.GuildId = {guild.Id}");
-            return Ok();
-        }
-
-        [HttpPost("guild/{guildId}/change-leader")]
-        [ProducesResponseType(200), ProducesResponseType(404)]
-        public async Task<IActionResult> ChangeGuildLeader(int guildId, string username)
-        {
-            var user = await _context.Users.AsNoTracking().FirstOrDefaultAsync(u => u.Username == username);
-            var guild = await _context.Guilds.FirstOrDefaultAsync(g => g.Id == guildId);
-            if(guild == null || user == null) return NotFound();
-            guild.LeaderId = user.Id;
-            await _context.SaveChangesAsync();
-            return Ok();
-        }
-
-        [HttpPost("leave-guild")]
-        [ProducesResponseType(200), ProducesResponseType(400)]
-        public async Task<IActionResult> LeaveGuild()
-        {
-            var userId = int.Parse(User.FindFirstValue(ClaimTypes.NameIdentifier));
-            var query = _context.Users.Include(x => x.Guild).Where(x => x.Id == userId && x.GuildId != null);
-            if(!query.Any()) return BadRequest();
-            var user = await query.FirstAsync();
-            if (user.Guild?.LeaderId == userId) return BadRequest();
-            user.GuildId = null;
-            await _context.SaveChangesAsync();
-            return Ok();
-        }
-
-        [HttpDelete("guild/disband")]
-        [ProducesResponseType(204), ProducesResponseType(400)]
-        public async Task<IActionResult> DisbandGuild()
-        {
-            var userId = int.Parse(User.FindFirstValue(ClaimTypes.NameIdentifier));
-            var user = await _context.Users.AsNoTracking().Include(x => x.Guild).FirstOrDefaultAsync(x => x.Id == userId);
-            if (user == null || user.Guild?.LeaderId != user.Id) return BadRequest();
-            var guildId = user.GuildId;
-            
-            //await _context.Database.ExecuteSqlInterpolatedAsync($@"UPDATE Users U SET GuildId = NULL WHERE U.GuildId = {guildId}");
-
-            await _context.Database.ExecuteSqlInterpolatedAsync($@"DELETE FROM Guilds WHERE Guilds.Id = {guildId}");
-
-            return NoContent();
-        }
-
-        [HttpPost("guild/{guildId}/set-privacy")]
-        [ProducesResponseType(200), ProducesResponseType(400), ProducesResponseType(404)]
-        public async Task<IActionResult> SetPrivacy(int guildId, bool privacy)
-        {
-            var guild = await _context.Guilds.FindAsync(guildId);
-            if (guild == null) return NotFound();
-            var userId = int.Parse(User.FindFirstValue(ClaimTypes.NameIdentifier));
-            if(guild.LeaderId != userId) return BadRequest();
-            guild.IsPrivate = privacy;
-            await _context.SaveChangesAsync();
-            return Ok();
-        }
-        
-
-        [HttpGet("party")]
-        [ProducesResponseType(typeof(Party), 200), ProducesResponseType(204)]
-        public async Task<IActionResult> GetCurrentParty()
-        {
-            var userId = int.Parse(User.FindFirstValue(ClaimTypes.NameIdentifier));
-            var query = from p in _context.Parties join u in _context.Users on p.Id equals u.PartyId where u.Id == userId select p;
-            if (!query.Any()) return NoContent();
-            var result = await query.FirstAsync();
-            Party party = new()
-            {
-                Id = result.Id,
-                Name = result.Name ?? "Unnamed Party"
-            };
-            return Ok(party);
-        }
-
-        [HttpGet("party/{partyId}/members")]
-        [ProducesResponseType(typeof(IEnumerable<string>), 200), ProducesResponseType(404)]
-        public async Task<IActionResult> GetPartyMembers(int partyId)
-        {
-            var query = from u in _context.Users join p in _context.Parties on u.PartyId equals p.Id where u.PartyId == partyId select u.Username;
-            if (!query.Any()) return NotFound("Party not found");
-            var members = await query.ToListAsync();
-            return Ok(members);
-        }
-
-        [HttpPost("create-party")]
-        [ProducesResponseType(200), ProducesResponseType(400)]
-        public async Task<IActionResult> CreateParty(string? name)
-        {
-            int userId = int.Parse(User.FindFirstValue(ClaimTypes.NameIdentifier));
-            var user = await _context.Users.FindAsync(userId);
-            if (user == null) return BadRequest();
-            if (user.PartyId != null) return BadRequest();
-            var party = new Party()
-            {
-                Name = name
-            };
-            await _context.Parties.AddAsync(party);
-            await _context.SaveChangesAsync();
-
-            user.PartyId = party.Id;
-            await _context.SaveChangesAsync();
-
-            await _context.Database.ExecuteSqlInterpolatedAsync($@"DELETE FROM PartyInvites p WHERE p.AcceptId = {userId}");
-
-            return Ok();
-        }
-
-        [HttpPost("party/invite")]
-        [ProducesResponseType(200), ProducesResponseType(400), ProducesResponseType(404)]
-        public async Task<IActionResult> InvitePartyMember(string username)
-        {
-            int userId = int.Parse(User.FindFirstValue(ClaimTypes.NameIdentifier));
-            var inviter = await _context.Users.FindAsync(userId);
-            if (inviter == null || inviter.PartyId == null) return BadRequest();
-            var invitee = await _context.Users.FirstOrDefaultAsync(x => x.Username == username);
-            if (invitee == null) return NotFound();
-            if (inviter.Id == invitee.Id) return BadRequest();
-            var members = await _context.Users.Where(x => x.PartyId == inviter.PartyId).ToListAsync();
-            var memberCount = members.Count;
-            if (memberCount == 4) return BadRequest("Full party");
-
-            await _context.Database.ExecuteSqlInterpolatedAsync($@"INSERT INTO PartyInvites (PartyId, InviteName, AcceptId) VALUES ({inviter.PartyId}, {inviter.Username}, {invitee.Id})");
-
-            return Ok();
-        }
-
-        [HttpGet("party/get-invites")]
-        public async Task<IEnumerable<string>> GetPartyInvites()
-        {
-            int userId = int.Parse(User.FindFirstValue(ClaimTypes.NameIdentifier));
-            var query = from pi in _context.PartyInvites where pi.AcceptId == userId select pi.InviteName;
-            if (!query.Any()) return Enumerable.Empty<string>();
-            var invites = await query.ToListAsync();
-            return invites;
-        }
-
-        [HttpPost("party/accept-invite")]
-        [ProducesResponseType(200), ProducesResponseType(404), ProducesResponseType(400)]
-        public async Task<IActionResult> AcceptInvite(string username)
-        {
-            var userId = int.Parse(User.FindFirstValue(ClaimTypes.NameIdentifier));
-            var user = await _context.Users.FindAsync(userId);
-            var inviteUser = await _context.Users.FirstOrDefaultAsync(x => x.Username == username);
-            if (inviteUser == null) return NotFound();
-            if (user == null) return NotFound();
-            if(user.PartyId != null) return BadRequest();
-            user.PartyId = inviteUser.PartyId;
-            await _context.SaveChangesAsync();
-
-            await _context.Database.ExecuteSqlInterpolatedAsync($@"DELETE FROM PartyInvites p WHERE p.AcceptId = {userId}");
-
-            return Ok();
-        }
-
-        [HttpPost("party/reject-invite")]
-        [ProducesResponseType(200)]
-        public async Task<IActionResult> RejectPartyInvite(string username)
-        {
-            var userId = int.Parse(User.FindFirstValue(ClaimTypes.NameIdentifier));        
-            await _context.Database.ExecuteSqlInterpolatedAsync($@"DELETE FROM PartyInvites P WHERE P.AcceptId = {userId} AND P.InviteName = {username}");
-            return Ok();
-        }
-
-        [HttpPost("party/leave")]
-        [ProducesResponseType(200), ProducesResponseType(400)]
-        public async Task<IActionResult> LeaveParty()
-        {
-            var userId = int.Parse(User.FindFirstValue(ClaimTypes.NameIdentifier));
-            var user = await _context.Users.FindAsync(userId);
-            if (user == null) return BadRequest("No user found");
-            var partyId = user.PartyId;
-            if (partyId == null) return BadRequest("Not in party");
-            user.PartyId = null;
-            await _context.SaveChangesAsync();
-            var query = from u in _context.Users where u.PartyId == partyId select u;
-            if (!query.Any())
-            {
-                await _context.Database.ExecuteSqlInterpolatedAsync($@"DELETE FROM Parties P WHERE P.Id = {partyId}");
-                await _context.Database.ExecuteSqlInterpolatedAsync($@"DELETE FROM PartyInvites P WHERE P.PartyId = {partyId}");
-            }
-            else
-            {
-                await _context.Database.ExecuteSqlInterpolatedAsync($"DELETE FROM PartyInvites P WHERE P.PartyId = {partyId} AND P.InviteName = {user.Username}");
-            }
-            return Ok();
-        }
+        await _context.SaveChangesAsync();
+        return Ok();
     }
 }

@@ -7,13 +7,13 @@ namespace AdventureGuildAPI.Models
     {
         public int Id { get; set; }
         public int UserId { get; set; }
-        public string Name { get; set; }
+        public string Name { get; set; } = null!;
         public string? Description { get; set; }
         public Priority Priority { get; set; }
         public DateTime CreatedDateTime { get; set; }
 
         [ForeignKey("UserId")]
-        public User User { get; set; }
+        public User User { get; set; } = null!;
     }
 
     public enum Priority

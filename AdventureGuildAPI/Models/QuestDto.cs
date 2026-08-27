@@ -5,7 +5,8 @@ namespace AdventureGuildAPI.Models
     public class QuestDto
     {
         public int Id { get; set; }
-        public string Name { get; set; }
+        [Required]
+        public string Name { get; set; } = null!;
         public string? Description { get; set; }
         public Priority Priority { get; set; }
     }

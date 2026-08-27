@@ -3,7 +3,6 @@ using System.ComponentModel.DataAnnotations.Schema;
 
 namespace AdventureGuildAPI.Models
 {
-    [Keyless]
     public class Friendship
     {
         public int RequestId { get; set; }
@@ -11,9 +10,9 @@ namespace AdventureGuildAPI.Models
         public bool Confirmed { get; set; }
 
         [ForeignKey("RequestId")]
-        public User RequestUser { get; set; }
+        public User RequestUser { get; set; } = null!;
         [ForeignKey("AcceptId")]
-        public User AcceptUser { get; set; }
+        public User AcceptUser { get; set; } = null!;
     }
 
 }

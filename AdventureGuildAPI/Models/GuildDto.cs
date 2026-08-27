@@ -2,7 +2,8 @@
 {
     public class GuildDto
     {
-        public string Name { get; set; }
+        [System.ComponentModel.DataAnnotations.Required]
+        public string Name { get; set; } = null!;
         public string? Description { get; set; }
         public bool IsPrivate { get; set; }
     }
