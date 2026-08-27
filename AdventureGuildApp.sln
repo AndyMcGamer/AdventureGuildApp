@@ -5,6 +5,8 @@ VisualStudioVersion = 17.3.32811.315
 MinimumVisualStudioVersion = 10.0.40219.1
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "AdventureGuildAPI", "AdventureGuildAPI\AdventureGuildAPI.csproj", "{00FBE718-3D6F-443F-8707-057E787E92FC}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "AdventureGuildAPI.Tests", "AdventureGuildAPI.Tests\AdventureGuildAPI.Tests.csproj", "{5C585B99-BCFF-48DE-9D87-55A6E60A362D}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -15,6 +17,10 @@ Global
 		{00FBE718-3D6F-443F-8707-057E787E92FC}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{00FBE718-3D6F-443F-8707-057E787E92FC}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{00FBE718-3D6F-443F-8707-057E787E92FC}.Release|Any CPU.Build.0 = Release|Any CPU
+		{5C585B99-BCFF-48DE-9D87-55A6E60A362D}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{5C585B99-BCFF-48DE-9D87-55A6E60A362D}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{5C585B99-BCFF-48DE-9D87-55A6E60A362D}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{5C585B99-BCFF-48DE-9D87-55A6E60A362D}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
