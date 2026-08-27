@@ -3,17 +3,19 @@ using System.ComponentModel.DataAnnotations.Schema;
 
 namespace AdventureGuildAPI.Models
 {
-    [Keyless]
     public class PartyInvite
     {
         public int PartyId { get; set; }
-        public string InviteName { get; set; }
+        public int InviterId { get; set; }
         public int AcceptId { get; set; }
 
         [ForeignKey("PartyId")]
-        public Party Party { get; set; }
+        public Party Party { get; set; } = null!;
+
+        [ForeignKey("InviterId")]
+        public User Inviter { get; set; } = null!;
 
         [ForeignKey("AcceptId")]
-        public User AcceptUser { get; set; }
+        public User AcceptUser { get; set; } = null!;
     }
 }

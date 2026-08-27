@@ -9,11 +9,11 @@ namespace AdventureGuildAPI.Models
     {
         public int Id { get; set; }
         [Required]
-        public string Name { get; set; }
+        public string Name { get; set; } = null!;
         public string? Description { get; set; }
         public bool IsPrivate { get; set; }
         public int LeaderId { get; set; }
 
-        public User Leader { get; set; }
+        public User Leader { get; set; } = null!;
     }
 }

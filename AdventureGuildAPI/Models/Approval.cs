@@ -9,8 +9,8 @@ namespace AdventureGuildAPI.Models
         public int QuestId { get; set; }
         public bool Approved { get; set; }
         [ForeignKey("ApproverId")]
-        public User User { get; set; }
+        public User User { get; set; } = null!;
         [ForeignKey("QuestId")]
-        public Quest Quest { get; set; }
+        public Quest Quest { get; set; } = null!;
     }
 }

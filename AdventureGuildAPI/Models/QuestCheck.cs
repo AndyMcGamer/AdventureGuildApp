@@ -3,7 +3,6 @@ using System.ComponentModel.DataAnnotations.Schema;
 
 namespace AdventureGuildAPI.Models
 {
-    [Keyless]
     public class QuestCheck
     {
         public int RequestId { get; set; }
@@ -12,9 +11,9 @@ namespace AdventureGuildAPI.Models
         public string? ImageRef { get; set; }
 
         [ForeignKey("RequestId")]
-        public User User { get; set; }
+        public User User { get; set; } = null!;
         [ForeignKey("QuestId")]
-        public Quest Quest { get; set; }
+        public Quest Quest { get; set; } = null!;
         [ForeignKey("PartyId")]
         public Party? Party { get; set; }
 

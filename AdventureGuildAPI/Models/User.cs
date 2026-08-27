@@ -9,15 +9,15 @@ namespace AdventureGuildAPI.Models
     {
         public int Id { get; set; }
         [Required]
-        public string Username { get; set; }
+        public string Username { get; set; } = null!;
         [Required]
-        public string EmailAddress { get; set; }
+        public string EmailAddress { get; set; } = null!;
         [Required]
-        public byte[] Password { get; set; }
+        public byte[] Password { get; set; } = null!;
         [Required]
-        public byte[] PasswordSalt { get; set; }
-        public string FirstName { get; set; }
-        public string LastName { get; set; }
+        public byte[] PasswordSalt { get; set; } = null!;
+        public string FirstName { get; set; } = null!;
+        public string LastName { get; set; } = null!;
         public int Money { get; set; } = 0;
         public int? GuildId { get; set; }
         public int? PartyId { get; set; }
@@ -25,11 +25,11 @@ namespace AdventureGuildAPI.Models
         [ForeignKey("PartyId")]
         public Party? Party { get; set; }
         [Required]
-        public string Role { get; set; }
+        public string Role { get; set; } = null!;
         [Required]
         public bool Verified { get; set; } = false;
         public string? RefreshToken { get; set; }
-        public byte[] VerificationToken { get; set; }
+        public byte[] VerificationToken { get; set; } = null!;
         public byte[]? ResetPasswordToken { get; set; }
         public DateTime? ResetPassExpires { get; set; }
     }
