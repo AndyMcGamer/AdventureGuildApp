@@ -96,7 +96,10 @@ namespace AdventureGuildAPI.Controllers
             var refreshToken = Request.Cookies["refreshToken"];
             if (refreshToken == null) return NotFound("No refresh token found");
 
-            var requestingUser = new JwtSecurityTokenHandler().ReadJwtToken(Request.Cookies["idToken"]).Claims.FirstOrDefault(c => c.Type == ClaimTypes.NameIdentifier)?.Value;
+            var idTokenCookie = Request.Cookies["idToken"];
+            if (idTokenCookie == null) return NotFound("No ID token found");
+
+            var requestingUser = new JwtSecurityTokenHandler().ReadJwtToken(idTokenCookie).Claims.FirstOrDefault(c => c.Type == ClaimTypes.NameIdentifier)?.Value;
             if (requestingUser == null) return NotFound("No id found");
 
             if (!int.TryParse(requestingUser, out var userId)) return BadRequest();
@@ -125,7 +128,7 @@ namespace AdventureGuildAPI.Controllers
         [ProducesResponseType(typeof(string), 200), ProducesResponseType(400)]
         public async Task<IActionResult> VerifyEmail(string token)
         {
-            var verificationToken = Convert.FromBase64String(token);
+            if (!TryDecodeToken(token, out var verificationToken)) return BadRequest("Invalid token");
             var foundUser = await _context.Users.FirstOrDefaultAsync(o => o.VerificationToken.SequenceEqual(verificationToken));
             if (foundUser == null) return BadRequest("Invalid token");
 
@@ -156,7 +159,7 @@ namespace AdventureGuildAPI.Controllers
         [ProducesResponseType(typeof(string), 200), ProducesResponseType(400)]
         public async Task<IActionResult> ResetTokenCheck(string token)
         {
-            var resetToken = Convert.FromBase64String(token);
+            if (!TryDecodeToken(token, out var resetToken)) return BadRequest("Invalid Token");
             var foundUser = await _context.Users.FirstOrDefaultAsync(o => o.ResetPasswordToken != null && o.ResetPasswordToken.SequenceEqual(resetToken));
             if (foundUser == null) return BadRequest("Invalid Token");
             if (foundUser.ResetPassExpires < DateTime.UtcNow) return BadRequest("Token expired");
@@ -236,7 +239,7 @@ namespace AdventureGuildAPI.Controllers
 
         private AccessToken GenerateAccessToken(User user)
         {
-            var securityKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(_configuration.GetSection("Jwt")["Key"]));
+            var securityKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(GetRequiredSetting("Jwt:Key")));
             var credentials = new SigningCredentials(securityKey, SecurityAlgorithms.HmacSha256);
 
             var claims = new[]
@@ -252,7 +255,7 @@ namespace AdventureGuildAPI.Controllers
             var audience = HttpContext.Request.Host.Value;
             var expires = DateTime.UtcNow.AddMinutes(15);
             var token = new JwtSecurityToken(
-                issuer: _configuration.GetSection("Jwt")["Issuer"],
+                issuer: GetRequiredSetting("Jwt:Issuer"),
                 audience: audience,
                 claims: claims,
                 expires: expires,
@@ -267,7 +270,7 @@ namespace AdventureGuildAPI.Controllers
 
         private string GenerateIdToken(User user, DateTime expires)
         {
-            var securityKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(_configuration.GetSection("Jwt")["Key"]));
+            var securityKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(GetRequiredSetting("Jwt:Key")));
             var credentials = new SigningCredentials(securityKey, SecurityAlgorithms.HmacSha256);
 
             var claims = new[]
@@ -278,7 +281,7 @@ namespace AdventureGuildAPI.Controllers
 
             var audience = HttpContext.Request.Host.Value;
             var idToken = new JwtSecurityToken(
-                issuer: _configuration.GetSection("Jwt")["Issuer"],
+                issuer: GetRequiredSetting("Jwt:Issuer"),
                 audience: audience,
                 claims: claims,
                 expires:expires,
@@ -332,7 +335,7 @@ namespace AdventureGuildAPI.Controllers
         private async Task<IActionResult> SendVerificationEmail(User user)
         {
             var email = new MimeMessage();
-            email.From.Add(MailboxAddress.Parse(_configuration.GetSection("EmailConfig")["From"]));
+            email.From.Add(MailboxAddress.Parse(GetRequiredSetting("EmailConfig:From")));
             email.To.Add(MailboxAddress.Parse(user.EmailAddress));
             email.Subject = "Adventurer's Guild - Verify your email";
             string link = GenerateLink(user.VerificationToken, "verify-email");
@@ -341,9 +344,9 @@ namespace AdventureGuildAPI.Controllers
             using var client = new SmtpClient();
             try
             {
-                await client.ConnectAsync(_configuration.GetSection("EmailConfig")["SmtpServer"], int.Parse(_configuration.GetSection("EmailConfig")["Port"]), SecureSocketOptions.StartTls);
+                await client.ConnectAsync(GetRequiredSetting("EmailConfig:SmtpServer"), int.Parse(GetRequiredSetting("EmailConfig:Port")), SecureSocketOptions.StartTls);
                 //client.AuthenticationMechanisms.Remove("XOAUTH2");
-                await client.AuthenticateAsync(_configuration.GetSection("EmailConfig")["Username"], _configuration.GetSection("EmailConfig")["Password"]);
+                await client.AuthenticateAsync(GetRequiredSetting("EmailConfig:Username"), GetRequiredSetting("EmailConfig:Password"));
 
                 await client.SendAsync(email);
             }
@@ -355,8 +358,7 @@ namespace AdventureGuildAPI.Controllers
             }
             finally
             {
-                await client.DisconnectAsync(true);
-                client.Dispose();
+                if (client.IsConnected) await client.DisconnectAsync(true);
             }
             return Ok("Verification sent");
         }
@@ -365,18 +367,19 @@ namespace AdventureGuildAPI.Controllers
         private async Task<IActionResult> SendResetEmail(User user)
         {
             var email = new MimeMessage();
-            email.From.Add(MailboxAddress.Parse(_configuration.GetSection("EmailConfig")["From"]));
+            email.From.Add(MailboxAddress.Parse(GetRequiredSetting("EmailConfig:From")));
             email.To.Add(MailboxAddress.Parse(user.EmailAddress));
             email.Subject = "Adventurer's Guild - Reset Your Password";
-            string link = GenerateLink(user.ResetPasswordToken, "reset-password");
+            if (user.ResetPasswordToken is not { } resetToken) return BadRequest("Reset token is unavailable.");
+            string link = GenerateLink(resetToken, "reset-password");
             email.Body = new TextPart(MimeKit.Text.TextFormat.Html) { Text = $"Hello {user.Username}, click this link to reset your password: <a href={link}> {link} </a>"};
 
             using var client = new SmtpClient();
             try
             {
-                await client.ConnectAsync(_configuration.GetSection("EmailConfig")["SmtpServer"], int.Parse(_configuration.GetSection("EmailConfig")["Port"]), SecureSocketOptions.StartTls);
+                await client.ConnectAsync(GetRequiredSetting("EmailConfig:SmtpServer"), int.Parse(GetRequiredSetting("EmailConfig:Port")), SecureSocketOptions.StartTls);
                 //client.AuthenticationMechanisms.Remove("XOAUTH2");
-                await client.AuthenticateAsync(_configuration.GetSection("EmailConfig")["Username"], _configuration.GetSection("EmailConfig")["Password"]);
+                await client.AuthenticateAsync(GetRequiredSetting("EmailConfig:Username"), GetRequiredSetting("EmailConfig:Password"));
 
                 await client.SendAsync(email);
             }
@@ -386,10 +389,28 @@ namespace AdventureGuildAPI.Controllers
             }
             finally
             {
-                await client.DisconnectAsync(true);
-                client.Dispose();
+                if (client.IsConnected) await client.DisconnectAsync(true);
             }
             return Ok("Password reset link sent");
+        }
+
+        private string GetRequiredSetting(string key)
+        {
+            return _configuration[key] ?? throw new InvalidOperationException($"Configuration value '{key}' is required.");
+        }
+
+        private static bool TryDecodeToken(string token, out byte[] decodedToken)
+        {
+            try
+            {
+                decodedToken = Convert.FromBase64String(token);
+                return true;
+            }
+            catch (FormatException)
+            {
+                decodedToken = [];
+                return false;
+            }
         }
 
         private string GenerateLink(byte[] token, string endpoint)
@@ -401,7 +422,7 @@ namespace AdventureGuildAPI.Controllers
             sb.Append("/api/Auth/");
             sb.Append(endpoint);
             sb.Append("?token=");
-            sb.Append(Convert.ToBase64String(token));
+            sb.Append(WebUtility.UrlEncode(Convert.ToBase64String(token)));
             return sb.ToString();
         }
 

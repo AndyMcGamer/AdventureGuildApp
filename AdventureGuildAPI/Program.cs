@@ -7,6 +7,13 @@ using Microsoft.OpenApi;
 using Swashbuckle.AspNetCore.Filters;
 
 var builder = WebApplication.CreateBuilder(args);
+var jwtSection = builder.Configuration.GetRequiredSection("Jwt");
+var jwtAudiences = jwtSection.GetSection("Audience").Get<string[]>()
+    ?? throw new InvalidOperationException("JWT audiences must be configured.");
+var jwtIssuer = jwtSection["Issuer"]
+    ?? throw new InvalidOperationException("JWT issuer must be configured.");
+var jwtKey = jwtSection["Key"]
+    ?? throw new InvalidOperationException("JWT signing key must be configured.");
 
 // Add services to the container.
 
@@ -33,11 +40,11 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
         {
             ValidateIssuer = true,
             ValidateAudience = true,
-            ValidAudiences = builder.Configuration.GetSection("Jwt:Audience").Get<string[]>().ToList(),
-            ValidIssuer = builder.Configuration.GetSection("Jwt")["Issuer"],
+            ValidAudiences = jwtAudiences,
+            ValidIssuer = jwtIssuer,
             ValidateLifetime = true,
             ValidateIssuerSigningKey = true,
-            IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(builder.Configuration.GetSection("Jwt")["Key"]))
+            IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(jwtKey))
         };
     });
 builder.Services.AddAuthorization(options =>
