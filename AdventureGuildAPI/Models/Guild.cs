@@ -14,7 +14,6 @@ namespace AdventureGuildAPI.Models
         public bool IsPrivate { get; set; }
         public int LeaderId { get; set; }
 
-        [ForeignKey("LeaderId")]
         public User Leader { get; set; }
     }
 }

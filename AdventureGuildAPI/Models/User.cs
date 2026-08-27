@@ -21,7 +21,6 @@ namespace AdventureGuildAPI.Models
         public int Money { get; set; } = 0;
         public int? GuildId { get; set; }
         public int? PartyId { get; set; }
-        [ForeignKey("GuildId")]
         public Guild? Guild { get; set; }
         [ForeignKey("PartyId")]
         public Party? Party { get; set; }
